@@ -1,8 +1,8 @@
-﻿using System;
+﻿using Serilog;
+using Serilog.Events;
+using System;
 using System.IO;
 using System.Linq;
-using Serilog;
-using Serilog.Events;
 
 namespace LogFileCollector
 {
@@ -33,7 +33,7 @@ namespace LogFileCollector
                 string dbPath = ResolveInData(config.DatabasePath);
                 string logPath = ResolveInData(config.Logging.LogFilePath);
 
-                // Map LogLevel
+                // Map LogLevel string to Serilog LogEventLevel
                 var minLevel = (config.Logging.LogLevel ?? "Information").Trim().ToLowerInvariant() switch
                 {
                     "debug" => LogEventLevel.Debug,
@@ -43,7 +43,7 @@ namespace LogFileCollector
                     _ => LogEventLevel.Information
                 };
 
-                // Map RollingInterval
+                // Map RollingInterval string to Serilog RollingInterval
                 var interval = (config.Logging.RollingInterval ?? "Day").Trim().ToLowerInvariant() switch
                 {
                     "hour" => RollingInterval.Hour,
@@ -53,7 +53,7 @@ namespace LogFileCollector
                     _ => RollingInterval.Day
                 };
 
-                // Configure Serilog
+                // Configure Serilog logging
                 Log.Logger = new LoggerConfiguration()
                     .MinimumLevel.Is(minLevel)
                     .WriteTo.Console(outputTemplate: config.Logging.LogOutputTemplate)
@@ -66,19 +66,22 @@ namespace LogFileCollector
 
                 Log.Information("LogFileCollector starting…");
 
+                // Command-line options
                 bool reset = args.Any(a => a.Equals("--reset", StringComparison.OrdinalIgnoreCase));
                 bool rescan = args.Any(a => a.Equals("--rescan", StringComparison.OrdinalIgnoreCase));
 
+                // Reset option: delete DB file
                 if (reset && File.Exists(dbPath))
                 {
                     File.Delete(dbPath);
                     Log.Warning("Database reset: {Db}", dbPath);
-                    // Continue with fresh DB
                 }
 
+                // Initialize DB and processor
                 var db = new Database(dbPath);
                 var processor = new FileProcessor(config, db);
 
+                // One-time rescan on startup if requested
                 if (rescan)
                 {
                     Log.Information("Rescan starting (Filter={Filter}, Subdirs={Subdirs})",
@@ -88,14 +91,37 @@ namespace LogFileCollector
                     Log.Information("Switching to watcher mode…");
                 }
 
-                // Always watch (unless we returned earlier on fatal config error)
+                // Always start watcher (unless config was fatally missing earlier)
                 processor.StartWatching();
 
+                // Periodic rescan (safety net against missed events)
+                if (config.PeriodicRescanMinutes > 0)
+                {
+                    var rescanInterval = TimeSpan.FromMinutes(config.PeriodicRescanMinutes);
+                    var timer = new System.Threading.Timer(_ =>
+                    {
+                        try
+                        {
+                            Log.Information("Starting periodic rescan (every {Minutes} minutes)...", config.PeriodicRescanMinutes);
+                            processor.ProcessAllFiles();
+                            Log.Information("Periodic rescan completed. {Stats}", processor.Stats);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Error during periodic rescan");
+                        }
+                    }, null, rescanInterval, rescanInterval);
+
+                    Log.Information("Periodic rescan enabled (every {Minutes} minutes)", config.PeriodicRescanMinutes);
+                }
+
+                // Keep running until Ctrl+C
                 Log.Information("Watcher running. Press Ctrl+C to stop.");
                 var exitEvent = new System.Threading.ManualResetEvent(false);
                 Console.CancelKeyPress += (s, e) => { e.Cancel = true; exitEvent.Set(); };
                 exitEvent.WaitOne();
 
+                // Final stats on shutdown
                 Log.Information("Shutdown. Final statistics: {Stats}", processor.Stats);
                 return 0;
             }

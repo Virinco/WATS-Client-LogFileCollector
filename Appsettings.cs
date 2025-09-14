@@ -12,6 +12,7 @@
         public int FileCreatedDelayMs { get; set; } = 500;
         public string DatabasePath { get; set; } = "copied.db";
         public string RenameStrategy { get; set; } = "counter";
+        public int PeriodicRescanMinutes { get; set; }
         public LoggingSettings Logging { get; set; } = new LoggingSettings();
     }
 

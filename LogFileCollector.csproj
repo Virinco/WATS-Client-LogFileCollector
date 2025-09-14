@@ -56,6 +56,7 @@
     <None Include="appsettings.json" />
     <None Include="LogFileCollector.iss" />
     <None Include="Readme.md" />
+    <None Include="TestScript\StressTest.ps1" />
   </ItemGroup>
   <ItemGroup>
     <!-- Logging -->
@@ -69,11 +70,15 @@
     <PackageReference Include="System.Text.Json" Version="10.0.0-rc.1.25451.107" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="docs\scheduled-task.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="LICENCE.txt" />
   </ItemGroup>
   <!-- Ensure no SourceGear.sqlite3 sneaks in -->
   <ItemGroup>
     <PackageReference Remove="SourceGear.sqlite3" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

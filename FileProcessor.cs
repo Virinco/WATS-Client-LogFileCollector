@@ -80,7 +80,8 @@ namespace LogFileCollector
             var watcher = new FileSystemWatcher(_config.SourceFolder, _config.Filter)
             {
                 IncludeSubdirectories = _config.IncludeSubdirectories,
-                EnableRaisingEvents = true
+                EnableRaisingEvents = true,
+                InternalBufferSize = 64 * 1024 // 64KB (default is 8KB)
             };
 
             FileSystemEventHandler handler = (s, e) =>
@@ -102,7 +103,7 @@ namespace LogFileCollector
             };
 
             watcher.Created += handler;
-            watcher.Changed += handler;
+            //watcher.Changed += handler;
 
             Log.Information("Watching {Path} (Filter={Filter}, Subdirs={Subdirs}, DelayMs={Delay})",
                 _config.SourceFolder, _config.Filter, _config.IncludeSubdirectories, _config.FileCreatedDelayMs);
