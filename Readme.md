@@ -7,16 +7,35 @@ Author: *Ragnar Engnes for Virinco AS, 2025*
 
 ## 🚀 Quick Start  
 
-1. **Install**  
-   Run the installer `LogFileCollectorSetup-x.x.exe`.  
+1. **Download**  
+   Go to the [GitHub Releases](../../releases) page and download the ZIP archive:  
+   ```
+   LogFileCollectorSetup-x.x.zip
+   ```  
+   This archive contains:  
+   - `LogFileCollectorSetup-x.x.exe` → installer  
+   - `README.md` → this documentation  
+   - `LICENCE.txt` → license terms  
 
-2. **Configure**  
+2. **Extract**  
+   Unzip the archive to a temporary folder.  
+
+3. **Install**  
+   Run the installer:  
+   ```
+   LogFileCollectorSetup-x.x.exe
+   ```  
+
+   > ⚠️ On first run, Windows SmartScreen may warn that the file is from an unknown publisher.  
+   > Click **More info → Run anyway** to continue.  
+
+4. **Configure**  
    After installation, edit the opened file:  
    ```
    C:\ProgramData\Virinco\WATS\LogFileCollector\appsettings.json
    ```  
 
-3. **Run**  
+5. **Run**  
    Either:  
    ```powershell
    LogFileCollector.exe --rescan
@@ -75,9 +94,10 @@ LogFileCollector monitors a **source folder** for new files and copies them to a
 
 ---
 
-## 🚀 Installation  
+## 🚀 Installation Details  
 
-LogFileCollector is delivered as an **Inno Setup installer** (`LogFileCollectorSetup-x.x.exe`):  
+The installer (`LogFileCollectorSetup-x.x.exe`) is shipped **inside a ZIP file** for safe distribution.  
+This avoids browser/antivirus false positives on direct `.exe` downloads.  
 
 - Installs binaries into:  
   ```
@@ -205,3 +225,64 @@ You can verify the task in **Windows Task Scheduler**:
 ![Scheduled Task Screenshot](docs/scheduled-task.png)
 
 *(Replace the image above with your own screenshot in `docs/scheduled-task.png`)*
+
+---
+
+## 📎 Appendix: Using Google Drive (or OneDrive/Dropbox) as Source Folder  
+
+LogFileCollector can also work with **cloud storage folders** such as Google Drive, OneDrive, or Dropbox.  
+There are some important considerations:  
+
+### 🔹 Option A – Local Drive Letter (e.g. `G:\`)  
+When you install **Google Drive for Desktop**, it mounts your drive as a virtual drive (often `G:\`).  
+You can set this path in your `appsettings.json` like:  
+
+```json
+"SourceFolder": "G:\\My Drive\\Logs"
+```  
+
+⚠️ Limitation:  
+- Drive letters (`G:\`) are tied to your interactive session.  
+- If LogFileCollector runs as a **scheduled task under NetworkService or SYSTEM**, the drive letter may **not be available**.  
+
+---
+
+### 🔹 Option B – UNC Path (Recommended)  
+Google Drive also exposes a UNC path, usually:  
+
+```
+\\GoogleDrive\My Drive\Logs
+```
+
+In `appsettings.json` (escape backslashes):  
+
+```json
+"SourceFolder": "\\\\GoogleDrive\\My Drive\\Logs"
+```  
+
+✅ Benefits:  
+- Works in scheduled tasks (even under NetworkService).  
+- More robust than using drive letters.  
+
+---
+
+### 🔹 Option C – Run Task as Your User  
+If UNC paths are not available or not reliable in your environment, you can run the scheduled task as your **Windows user account**:  
+
+- Open Task Scheduler → Properties → “Run as user” → select your account.  
+- Enable “Run whether user is logged on or not”.  
+
+This ensures the mapped Google Drive letter (`G:\`) is available.  
+
+---
+
+### 🔹 Notes for Other Cloud Drives  
+- **OneDrive** → Use `C:\Users\\<username>\\OneDrive\\...` or UNC path if available.  
+- **Dropbox** → Typically `C:\Users\\<username>\\Dropbox\\...`.  
+- General rule: Prefer UNC/local paths over mapped drive letters.  
+
+### 🔹 Permissions
+
+LogFileCollector only needs read access to the source folder.
+All duplicate detection and tracking is handled internally via the local SQLite database (copied.db).
+Write permissions are only required for the target folder where files are copied.

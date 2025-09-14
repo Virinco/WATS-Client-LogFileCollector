@@ -1,32 +1,33 @@
-﻿namespace LogFileCollector
+﻿using System;
+
+namespace LogFileCollector
 {
     /// <summary>
-    /// Strongly typed mapping of appsettings.json.
+    /// Strongly typed configuration bound from appsettings.json.
     /// </summary>
-    public class Appsettings
+    public class AppSettings
     {
-        public string SourceFolder { get; set; } = "";
-        public string TargetFolder { get; set; } = "";
-        public string Filter { get; set; } = "*.*";
-        public bool IncludeSubdirectories { get; set; } = true;
-        public int FileCreatedDelayMs { get; set; } = 500;
-        public string DatabasePath { get; set; } = "copied.db";
-        public string RenameStrategy { get; set; } = "counter";
-        public LoggingSettings Logging { get; set; } = new LoggingSettings();
+        public string SourceFolder { get; set; }
+        public string TargetFolder { get; set; }
+        public string Filter { get; set; }
+        public bool IncludeSubdirectories { get; set; }
+        public int FileCreatedDelayMs { get; set; } // default 1000 ms (set in JSON)
+        public string DatabasePath { get; set; }
+        public string RenameStrategy { get; set; } // "counter" | "timestamp" | "guid"
+        public int PeriodicRescanMinutes { get; set; } // 0 = disabled
+
+        public LoggingSettings Logging { get; set; }
     }
 
     /// <summary>
-    /// Logging section from config.
-    /// Verbose = force per-file skip lines at Information level (even if LogLevel > Debug).
+    /// Logging configuration (Serilog)
     /// </summary>
     public class LoggingSettings
     {
-        public string LogFilePath { get; set; } = "log.txt";
-        public string LogOutputTemplate { get; set; } =
-            "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
-        public string LogLevel { get; set; } = "Information";   // Debug|Information|Warning|Error
-        public string RollingInterval { get; set; } = "Day";     // Day|Month|Year|Infinite
-        public int RetainedFileCountLimit { get; set; } = 10;
-        public bool Verbose { get; set; } = false;
+        public string LogFilePath { get; set; }
+        public string LogOutputTemplate { get; set; }
+        public string LogLevel { get; set; }
+        public string RollingInterval { get; set; }
+        public int RetainedFileCountLimit { get; set; }
     }
 }

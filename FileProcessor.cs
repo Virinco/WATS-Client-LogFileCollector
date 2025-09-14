@@ -6,196 +6,188 @@ using Serilog;
 namespace LogFileCollector
 {
     /// <summary>
-    /// Scans and copies files; sets up a watcher for real-time events.
-    /// Honors IncludeSubdirectories and FileCreatedDelayMs.
-    /// Provides per-run statistics and richer network error logging.
+    /// Simple stats container. We keep one per run (RunStats) and one cumulative (TotalStats).
+    /// </summary>
+    public class ProcessingStats
+    {
+        public int Scanned { get; set; }
+        public int Copied { get; set; }
+        public int Skipped { get; set; }
+        public int Errors { get; set; }
+
+        public override string ToString()
+        {
+            return string.Format("Scanned={0}, Copied={1}, Skipped={2}, Errors={3}", Scanned, Copied, Skipped, Errors);
+        }
+
+        public void Reset()
+        {
+            Scanned = 0;
+            Copied = 0;
+            Skipped = 0;
+            Errors = 0;
+        }
+
+        public void Add(ProcessingStats other)
+        {
+            Scanned += other.Scanned;
+            Copied += other.Copied;
+            Skipped += other.Skipped;
+            Errors += other.Errors;
+        }
+    }
+
+    /// <summary>
+    /// Encapsulates watcher + scanning logic.
+    /// - Uses Created + Renamed events (Changed is noisy and can duplicate)
+    /// - Increases InternalBufferSize to 64 KB for burst resistance
+    /// - Respects FileCreatedDelayMs before copying to avoid partial files
+    /// - Uses Database for duplicate prevention based on (path, lastWriteUtc, length)
     /// </summary>
     public class FileProcessor
     {
-        private readonly Appsettings _config;
+        private readonly AppSettings _config;
         private readonly Database _db;
-        public ProcessingStats Stats { get; } = new ProcessingStats();
+        private FileSystemWatcher _watcher;
 
-        public FileProcessor(Appsettings config, Database db)
+        public ProcessingStats RunStats { get; private set; } = new ProcessingStats();
+        public ProcessingStats TotalStats { get; private set; } = new ProcessingStats();
+
+        public FileProcessor(AppSettings config, Database db)
         {
             _config = config;
             _db = db;
         }
 
-        /// <summary>Rescan entire tree and copy all files not yet copied.</summary>
-        public int ProcessAllFiles()
+        /// <summary>
+        /// Full pass over the source folder. Resets RunStats each time.
+        /// </summary>
+        public void ProcessAllFiles()
         {
+            RunStats.Reset();
+
+            SearchOption opt = _config.IncludeSubdirectories ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
+            // Enumerate defensively; if SourceFolder is a network/UNC path, provide more actionable errors.
+            string[] files;
             try
             {
-                if (!Directory.Exists(_config.SourceFolder))
-                {
-                    Log.Error("Source folder not found: {Path}", _config.SourceFolder);
-                    return 0;
-                }
-
-                var option = _config.IncludeSubdirectories ?
-                             SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-
-                foreach (var file in Directory.EnumerateFiles(_config.SourceFolder, _config.Filter, option))
-                {
-                    Stats.Scanned++;
-                    if (TryCopy(file)) Stats.Copied++; else Stats.Skipped++;
-                }
-            }
-            catch (UnauthorizedAccessException ua)
-            {
-                Stats.Errors++;
-                if (IsNetworkPath(_config.SourceFolder))
-                    Log.Error(ua, "Access denied to network source folder: {Path}. Check share perms or the task account.", _config.SourceFolder);
-                else
-                    Log.Error(ua, "Access denied reading source folder: {Path}", _config.SourceFolder);
-            }
-            catch (IOException ioEx)
-            {
-                Stats.Errors++;
-                if (IsNetworkPath(_config.SourceFolder))
-                    Log.Error(ioEx, "Network share issue reading {Path} (unavailable, offline, or path changed).", _config.SourceFolder);
-                else
-                    Log.Error(ioEx, "I/O error while scanning source folder {Path}", _config.SourceFolder);
+                files = Directory.GetFiles(_config.SourceFolder, _config.Filter, opt);
             }
             catch (Exception ex)
             {
-                Stats.Errors++;
-                Log.Error(ex, "Unexpected error scanning source folder {Path}", _config.SourceFolder);
-            }
-
-            Log.Information("Processing summary: {Stats}", Stats);
-            return Stats.Copied;
-        }
-
-        /// <summary>Start FileSystemWatcher, honoring IncludeSubdirectories and FileCreatedDelayMs.</summary>
-        public void StartWatching()
-        {
-            if (!Directory.Exists(_config.SourceFolder))
-            {
-                Log.Error("Source folder not found: {Path}", _config.SourceFolder);
+                Log.Error(ex, "Failed to enumerate files in SourceFolder={Folder}. If this is a network or cloud path, verify UNC accessibility and permissions (read only is sufficient).", _config.SourceFolder);
                 return;
             }
 
-            var watcher = new FileSystemWatcher(_config.SourceFolder, _config.Filter)
+            foreach (string fullPath in files)
             {
-                IncludeSubdirectories = _config.IncludeSubdirectories,
-                EnableRaisingEvents = true
-            };
+                HandleOne(fullPath);
+            }
 
-            FileSystemEventHandler handler = (s, e) =>
-            {
-                try
-                {
-                    // Let the writer finish; protects against sharing violations/partial writes
-                    if (_config.FileCreatedDelayMs > 0)
-                        Thread.Sleep(_config.FileCreatedDelayMs);
+            // After a run, fold into totals and log
+            TotalStats.Add(RunStats);
+            Log.Information("Processing summary: {RunStats}", RunStats);
+            Log.Information("Total so far: {TotalStats}", TotalStats);
+        }
 
-                    Stats.Scanned++;
-                    if (TryCopy(e.FullPath)) Stats.Copied++; else Stats.Skipped++;
-                }
-                catch (Exception ex)
-                {
-                    Stats.Errors++;
-                    Log.Error(ex, "Watcher error for {File}", e.FullPath);
-                }
-            };
+        /// <summary>
+        /// Start the FileSystemWatcher for incremental changes.
+        /// </summary>
+        public void StartWatching()
+        {
+            _watcher = new FileSystemWatcher(_config.SourceFolder, _config.Filter);
+            _watcher.IncludeSubdirectories = _config.IncludeSubdirectories;
+            _watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime;
+            _watcher.InternalBufferSize = 64 * 1024; // Max 64 KB
 
-            watcher.Created += handler;
-            watcher.Changed += handler;
+            _watcher.Created += OnCreatedOrRenamed;
+            _watcher.Renamed += OnCreatedOrRenamed;
 
-            Log.Information("Watching {Path} (Filter={Filter}, Subdirs={Subdirs}, DelayMs={Delay})",
+            _watcher.EnableRaisingEvents = true;
+
+            Log.Information("Watching {Source} (Filter={Filter}, Subdirs={Subdirs}, DelayMs={Delay})",
                 _config.SourceFolder, _config.Filter, _config.IncludeSubdirectories, _config.FileCreatedDelayMs);
         }
 
-        /// <summary>Try copy one file if not already tracked; applies rename strategy.</summary>
-        private bool TryCopy(string sourceFile)
+        private void OnCreatedOrRenamed(object sender, FileSystemEventArgs e)
+        {
+            HandleOne(e.FullPath, fromWatcher: true);
+        }
+
+        /// <summary>
+        /// Process a single file path:
+        /// - wait FileCreatedDelayMs (to avoid partial writes)
+        /// - check DB for duplication
+        /// - copy to target (with rename strategy on collision)
+        /// - record in DB
+        /// Stats:
+        /// - For watcher events, we reset RunStats to report a per-event summary (keeps logs informative)
+        /// - For full scans, ProcessAllFiles() resets before the loop and aggregates.
+        /// </summary>
+        private void HandleOne(string fullPath, bool fromWatcher = false)
         {
             try
             {
-                var fi = new FileInfo(sourceFile);
-                if (!fi.Exists)
+                if (fromWatcher)
                 {
-                    LogAtSkipLevel("Skipped (not found): {File}", sourceFile);
-                    return false;
+                    // For single-event summaries in logs
+                    RunStats.Reset();
                 }
 
-                if (_db.IsCopied(fi.FullName, fi.LastWriteTimeUtc, fi.Length))
+                // Wait out writer processes (cheap insurance)
+                Thread.Sleep(_config.FileCreatedDelayMs);
+
+                FileInfo fi = new FileInfo(fullPath);
+                if (!fi.Exists) return; // vanished or temp
+
+                RunStats.Scanned++;
+
+                // Duplicate check against DB
+                if (_db.IsFileAlreadyCopied(fullPath, fi.LastWriteTimeUtc, fi.Length))
                 {
-                    LogAtSkipLevel("Skipped (already copied): {File}", fi.FullName);
-                    return false;
+                    Log.Debug("Skipped (already copied): {File}", fullPath);
+                    RunStats.Skipped++;
+                    if (fromWatcher)
+                    {
+                        TotalStats.Add(RunStats);
+                        Log.Information("Watcher event summary: {RunStats}", RunStats);
+                        Log.Information("Total so far: {TotalStats}", TotalStats);
+                    }
+                    return;
                 }
 
-                Directory.CreateDirectory(_config.TargetFolder);
+                // Ensure target folder exists
+                if (!Directory.Exists(_config.TargetFolder))
+                {
+                    Directory.CreateDirectory(_config.TargetFolder);
+                }
 
-                string targetPath = Path.Combine(_config.TargetFolder, fi.Name);
-                targetPath = EnsureUniqueTarget(targetPath);
+                // Resolve unique target path per strategy
+                string targetPath = _db.GetUniqueTargetPath(_config.TargetFolder, fi.Name, _config.RenameStrategy);
 
-                File.Copy(fi.FullName, targetPath);
-                _db.MarkCopied(fi.FullName, fi.LastWriteTimeUtc, fi.Length);
+                // Copy (no overwrite)
+                File.Copy(fullPath, targetPath, false);
 
-                Log.Information("Copied {Source} -> {Target}", fi.FullName, targetPath);
-                return true;
-            }
-            catch (UnauthorizedAccessException ua)
-            {
-                Stats.Errors++;
-                if (IsNetworkPath(_config.SourceFolder))
-                    Log.Error(ua, "Network permission issue copying {File} from {Src}", sourceFile, _config.SourceFolder);
-                else
-                    Log.Error(ua, "Permission issue copying {File}", sourceFile);
-                return false;
-            }
-            catch (IOException ioEx)
-            {
-                Stats.Errors++;
-                if (IsNetworkPath(_config.SourceFolder))
-                    Log.Error(ioEx, "Network I/O error copying {File} (share offline, transient lock, or path changed).", sourceFile);
-                else
-                    Log.Error(ioEx, "I/O error copying {File}", sourceFile);
-                return false;
+                // Record in DB
+                _db.MarkFileCopied(fullPath, fi.LastWriteTimeUtc, fi.Length);
+
+                RunStats.Copied++;
+                Log.Information("Copied {Source} -> {Target}", fullPath, targetPath);
+
+                if (fromWatcher)
+                {
+                    TotalStats.Add(RunStats);
+                    Log.Information("Watcher event summary: {RunStats}", RunStats);
+                    Log.Information("Total so far: {TotalStats}", TotalStats);
+                }
             }
             catch (Exception ex)
             {
-                Stats.Errors++;
-                Log.Error(ex, "Unexpected error copying {File}", sourceFile);
-                return false;
+                RunStats.Errors++;
+                TotalStats.Errors++;
+                Log.Error(ex, "Error processing file {File}", fullPath);
             }
-        }
-
-        /// <summary>Apply rename strategy until target path is unique.</summary>
-        private string EnsureUniqueTarget(string initialPath)
-        {
-            string candidate = initialPath;
-            string dir = Path.GetDirectoryName(initialPath)!;
-            string baseName = Path.GetFileNameWithoutExtension(initialPath);
-            string ext = Path.GetExtension(initialPath);
-            int counter = 1;
-
-            while (File.Exists(candidate))
-            {
-                switch ((_config.RenameStrategy ?? "counter").ToLowerInvariant())
-                {
-                    case "timestamp":
-                        candidate = Path.Combine(dir, $"{baseName}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
-                        break;
-                    case "guid":
-                        candidate = Path.Combine(dir, $"{baseName}_{Guid.NewGuid():N}{ext}");
-                        break;
-                    default: // counter
-                        candidate = Path.Combine(dir, $"{baseName}_{counter++}{ext}");
-                        break;
-                }
-            }
-            return candidate;
-        }
-
-        private static bool IsNetworkPath(string path) => path.StartsWith(@"\\");
-        private void LogAtSkipLevel(string messageTemplate, string value)
-        {
-            // If Verbose enabled, bubble skip lines to Information; otherwise keep them at Debug
-            if (_config.Logging.Verbose) Log.Information(messageTemplate, value);
-            else Log.Debug(messageTemplate, value);
         }
     }
 }
