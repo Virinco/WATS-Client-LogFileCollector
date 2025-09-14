@@ -85,12 +85,6 @@
   <ItemGroup>
     <PackageReference Remove="SourceGear.sqlite3" />
   </ItemGroup>
-  <!-- Copy all checked-in installers into Debug/Release output -->
-  <ItemGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64' Or '$(Configuration)|$(Platform)' == 'Release|x64'">
-    <Content Include="Installer\LogFileCollectorSetup-*.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
