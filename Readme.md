@@ -165,7 +165,7 @@ Key points:
 - 🛠 Contributions (pull requests) are welcome, but acceptance is at Virinco’s discretion.  
 - ⚠️ Software is provided **“AS IS”**, without warranty. Use at your own risk.  
 
-See [LICENCE.txt](./LICENCE.txt) for the complete terms.  
+See [Licence.txt](./Licence.txt) for the complete terms.  
 
 ---
 
