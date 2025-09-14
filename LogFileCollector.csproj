@@ -48,14 +48,15 @@
     <Compile Include="ConfigLoader.cs" />
     <Compile Include="Database.cs" />
     <Compile Include="FileProcessor.cs" />
-    <Compile Include="ProcessingStats.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="appsettings.json" />
     <None Include="LogFileCollector.iss" />
-    <None Include="Readme.md" />
+    <None Include="Readme.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="TestScript\StressTest.ps1" />
   </ItemGroup>
   <ItemGroup>
@@ -63,7 +64,7 @@
     <PackageReference Include="Serilog" Version="4.3.1-dev-02385" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.1-dev-00953" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.*" />
-    <!-- SQLite (modern stack only) -->
+    <!-- SQLite -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0-rc.1.25451.107" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
     <!-- JSON -->
@@ -73,11 +74,22 @@
     <Content Include="docs\scheduled-task.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="LICENCE.txt" />
+    <Content Include="Installer\LogFileCollectorSetup-1.1.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="LICENCE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <!-- Ensure no SourceGear.sqlite3 sneaks in -->
   <ItemGroup>
     <PackageReference Remove="SourceGear.sqlite3" />
+  </ItemGroup>
+  <!-- Copy all checked-in installers into Debug/Release output -->
+  <ItemGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64' Or '$(Configuration)|$(Platform)' == 'Release|x64'">
+    <Content Include="Installer\LogFileCollectorSetup-*.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
