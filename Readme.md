@@ -224,8 +224,6 @@ You can verify the task in **Windows Task Scheduler**:
 
 ![Scheduled Task Screenshot](docs/scheduled-task.png)
 
-*(Replace the image above with your own screenshot in `docs/scheduled-task.png`)*
-
 ---
 
 ## 📎 Appendix: Using Google Drive (or OneDrive/Dropbox) as Source Folder  
