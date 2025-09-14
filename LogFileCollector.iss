@@ -41,57 +41,82 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN \Virinco\LogFileCollect
 Name: createtask; Description: "Create scheduled task in Task Scheduler (\Virinco\LogFileCollector, run as NetworkService with --rescan)"; GroupDescription: "Additional tasks:"; Flags: unchecked
 
 [Code]
+procedure LogToFile(const Msg: string);
+var
+  LogPath, DateTimeStr: string;
+  SL: TStringList;
+begin
+  LogPath := ExpandConstant('{commonappdata}\Virinco\WATS\LogFileCollector\setup-task.log');
+  ForceDirectories(ExtractFileDir(LogPath));
+
+  SL := TStringList.Create;
+  try
+    if FileExists(LogPath) then
+      SL.LoadFromFile(LogPath);
+
+    DateTimeStr := GetDateTimeString('yyyy-mm-dd hh:nn:ss', #0, #0);
+    SL.Add(DateTimeStr + ' ' + Msg);
+
+    SL.SaveToFile(LogPath);
+  finally
+    SL.Free;
+  end;
+end;
+
 procedure CreateTaskXml(const XmlPath, ExePath: string);
 var
-  XmlContent: String;
+  SL: TStringList;
 begin
-  XmlContent :=
-    '<?xml version="1.0" encoding="UTF-16"?>' + #13#10 +
-    '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' +
-    '  <RegistrationInfo>' +
-    '    <Author>Virinco AS</Author>' +
-    '    <Description>LogFileCollector scheduled task</Description>' +
-    '  </RegistrationInfo>' +
-    '  <Triggers>' +
-    '    <BootTrigger>' +
-    '      <Enabled>true</Enabled>' +
-    '    </BootTrigger>' +
-    '  </Triggers>' +
-    '  <Principals>' +
-    '    <Principal id="Author">' +
-    '      <UserId>NT AUTHORITY\NetworkService</UserId>' +
-    '      <LogonType>Password</LogonType>' +
-    '      <RunLevel>HighestAvailable</RunLevel>' +
-    '    </Principal>' +
-    '  </Principals>' +
-    '  <Settings>' +
-    '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' +
-    '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' +
-    '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' +
-    '    <AllowHardTerminate>true</AllowHardTerminate>' +
-    '    <StartWhenAvailable>true</StartWhenAvailable>' +
-    '    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>' +
-    '    <IdleSettings>' +
-    '      <StopOnIdleEnd>false</StopOnIdleEnd>' +
-    '      <RestartOnIdle>false</RestartOnIdle>' +
-    '    </IdleSettings>' +
-    '    <AllowStartOnDemand>true</AllowStartOnDemand>' +
-    '    <Enabled>true</Enabled>' +
-    '    <Hidden>false</Hidden>' +
-    '    <RunOnlyIfIdle>false</RunOnlyIfIdle>' +
-    '    <WakeToRun>false</WakeToRun>' +
-    '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' +
-    '    <Priority>7</Priority>' +
-    '  </Settings>' +
-    '  <Actions Context="Author">' +
-    '    <Exec>' +
-    '      <Command>' + ExePath + '</Command>' +
-    '      <Arguments>--rescan</Arguments>' +
-    '    </Exec>' +
-    '  </Actions>' +
-    '</Task>';
-
-  SaveStringToFile(XmlPath, XmlContent, False);  // False = write as UTF-16 with BOM
+  SL := TStringList.Create;
+  try
+    SL.Text :=
+      '<?xml version="1.0" encoding="UTF-16"?>' + #13#10 +
+      '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' +
+      '  <RegistrationInfo>' +
+      '    <Author>Virinco AS</Author>' +
+      '    <Description>LogFileCollector scheduled task</Description>' +
+      '  </RegistrationInfo>' +
+      '  <Triggers>' +
+      '    <BootTrigger>' +
+      '      <Enabled>true</Enabled>' +
+      '    </BootTrigger>' +
+      '  </Triggers>' +
+      '  <Principals>' +
+      '    <Principal id="Author">' +
+      '      <UserId>S-1-5-20</UserId>' + // NetworkService SID
+      '      <RunLevel>LeastPrivilege</RunLevel>' +
+      '    </Principal>' +
+      '  </Principals>' +
+      '  <Settings>' +
+      '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' +
+      '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' +
+      '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' +
+      '    <AllowHardTerminate>true</AllowHardTerminate>' +
+      '    <StartWhenAvailable>true</StartWhenAvailable>' +
+      '    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>' +
+      '    <IdleSettings>' +
+      '      <StopOnIdleEnd>false</StopOnIdleEnd>' +
+      '      <RestartOnIdle>false</RestartOnIdle>' +
+      '    </IdleSettings>' +
+      '    <AllowStartOnDemand>true</AllowStartOnDemand>' +
+      '    <Enabled>true</Enabled>' +
+      '    <Hidden>false</Hidden>' +
+      '    <RunOnlyIfIdle>false</RunOnlyIfIdle>' +
+      '    <WakeToRun>false</WakeToRun>' +
+      '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' +
+      '    <Priority>7</Priority>' +
+      '  </Settings>' +
+      '  <Actions Context="Author">' +
+      '    <Exec>' +
+      '      <Command>' + ExePath + '</Command>' +
+      '      <Arguments>--rescan</Arguments>' +
+      '    </Exec>' +
+      '  </Actions>' +
+      '</Task>';
+    SL.SaveToFile(XmlPath);
+  finally
+    SL.Free;
+  end;
 end;
 
 procedure CreateTaskViaXml();
@@ -100,22 +125,22 @@ var
   XmlPath, TaskExe, Args, ExePath: String;
 begin
   TaskExe := ExpandConstant('{sys}\schtasks.exe');
-  XmlPath := ExpandConstant('{tmp}\LogFileCollector.xml');
+  XmlPath := ExpandConstant('{commonappdata}\Virinco\WATS\LogFileCollector\LogFileCollector.xml');
   ExePath := ExpandConstant('{app}\LogFileCollector.exe');
 
+  ForceDirectories(ExtractFileDir(XmlPath));
   CreateTaskXml(XmlPath, ExePath);
 
-  { Remove old task if it exists }
+  LogToFile('Task XML created at: ' + XmlPath);
+
   Exec(TaskExe, '/Delete /TN "\Virinco\LogFileCollector" /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  LogToFile('Deleting old scheduled task if present...');
 
-  
-  { Import new XML into folder \Virinco (NetworkService defined in XML) }
-  Args := '/Create /TN "\Virinco\LogFileCollector" /XML "' + XmlPath + '" /F';
-
-  //MsgBox(TaskExe +' ' + Args , mbInformation, MB_OK);
-  
-  if not Exec(TaskExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    MsgBox('Failed to create scheduled task from XML.', mbError, MB_OK);
+  Args := '/Create /TN "\Virinco\LogFileCollector" /RU "NT AUTHORITY\NetworkService" /XML "' + XmlPath + '" /F';
+  if Exec(TaskExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    LogToFile('Scheduled task created successfully. Run this manually to test: ' + TaskExe + ' ' + Args)
+  else
+    LogToFile('Failed to create scheduled task. Command: ' + TaskExe + ' ' + Args);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
